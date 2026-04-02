@@ -1,3 +1,4 @@
+# Training pipeline: train on dataframe, export artifact + contract.
 import json
 from pathlib import Path
 from datetime import datetime
@@ -20,8 +21,9 @@ from prediction_contract.feature_schema import (
 )
 from prediction_contract.contract_version import ContractVersion
 
-
 def _code_departement_to_numeric(ser: pd.Series) -> pd.Series:
+    """Convert department code strings to floats. Handles Corsica (2A→20, 2B→21)."""
+
     def map_one(val: str) -> float:
         if pd.isna(val):
             return 0.0
@@ -37,18 +39,50 @@ def _code_departement_to_numeric(ser: pd.Series) -> pd.Series:
 
     return ser.map(map_one)
 
+def _code_postal_to_numeric(ser: pd.Series) -> pd.Series:
+    """Convert postal code strings to floats.
+
+    Postal codes like "75015" become 75015.0. Missing or invalid values become 0.0.
+    This is a simple numeric encoding — the model can learn that nearby postal codes
+    (e.g. 75015 vs 75016) may have similar price patterns.
+
+    Limitation: this treats postal codes as continuous numbers, which means the model
+    might think 75015 is "between" 75014 and 75016 in some meaningful way. A more
+    sophisticated approach would be target encoding or embedding, but for a first
+    enrichment this is simple and defensible.
+    """
+
+    def map_one(val: str) -> float:
+        if pd.isna(val):
+            return 0.0
+        s = str(val).strip()
+        try:
+            return float(int(s))
+        except ValueError:
+            return 0.0
+
+    return ser.map(map_one)
 
 def build_feature_matrix(df: pd.DataFrame) -> np.ndarray:
+    """Build the design matrix from a DataFrame.
+
+    Column order MUST match MODEL_FEATURE_NAMES in feature_schema.py:
+      [surface, pieces, dept, postal, type_Appartement, type_Maison, ...]
+
+    v2 change: added code_postal between code_departement and the one-hot type columns.
+    """
     surface = df["surface_reelle_bati"].fillna(0.0).astype(np.float64)
     pieces = df["nombre_pieces_principales"].fillna(0.0).astype(np.float64)
     dept = _code_departement_to_numeric(df["code_departement"].astype(str))
+
+    # NEW in v2: postal code as a numeric feature
+    postal = _code_postal_to_numeric(df["code_postal"].astype(str))
 
     type_local = df["type_local"].fillna("Appartement").astype(str)
     encoder = OneHotEncoder(categories=[TYPE_LOCAL_CATEGORIES], sparse_output=False)
     type_encoded = encoder.fit_transform(type_local.values.reshape(-1, 1))
 
-    return np.column_stack([surface.values, pieces.values, dept.values, type_encoded])
-
+    return np.column_stack([surface.values, pieces.values, dept.values, postal.values, type_encoded])
 
 def train_on_dataframe(df: pd.DataFrame) -> Any:
     X = build_feature_matrix(df)
@@ -56,7 +90,6 @@ def train_on_dataframe(df: pd.DataFrame) -> Any:
     reg = RandomForestRegressor(n_estimators=50, max_depth=10, random_state=42)
     reg.fit(X, y)
     return reg
-
 
 def export_artifact(
     model: Any,
@@ -84,11 +117,11 @@ def export_artifact(
 
 
 # Columns every training CSV must have (order used when building the combined table).
+# v2 change: added "code_postal" to the required columns list.
 REQUIRED_TRAINING_COLUMNS_ORDERED = (
-    list(MODEL_FEATURE_NAMES[:3]) + ["type_local", TARGET_NAME]
+    list(MODEL_FEATURE_NAMES[:4]) + ["type_local", TARGET_NAME]
 )
 REQUIRED_TRAINING_COLUMNS = set(REQUIRED_TRAINING_COLUMNS_ORDERED)
-
 
 def load_dvf_subset_csv(csv_path: Path, separator: str = ";") -> pd.DataFrame:
     df = pd.read_csv(csv_path, sep=separator, low_memory=False)
@@ -96,7 +129,6 @@ def load_dvf_subset_csv(csv_path: Path, separator: str = ";") -> pd.DataFrame:
     if missing:
         raise ValueError(f"CSV missing columns: {missing}")
     return df
-
 
 def train_from_csv_and_export(
     csv_path: Path,
@@ -108,15 +140,12 @@ def train_from_csv_and_export(
     model = train_on_dataframe(df)
     return export_artifact(model, artifact_dir, model_version=model_version)
 
-
 def load_all_csvs_from_dir(
     data_dir: Path,
     separator: str = ";",
 ) -> pd.DataFrame:
-    """
-    Load every CSV in data_dir, check they all have the same columns and the required
-    training columns, then concatenate. Raises if no CSVs, missing columns, or schema mismatch.
-    """
+    """  Load every CSV in data_dir, check they all have the same columns and the required
+    training columns, then concatenate. Raises if no CSVs, missing columns, or schema mismatch.."""
     data_dir = Path(data_dir)
     csv_files = sorted(data_dir.glob("*.csv"))
     if not csv_files:
@@ -148,8 +177,7 @@ def load_all_csvs_from_dir(
                 f"Only in this file: {only_in_this}. Only in others: {only_in_others}. "
                 "All CSVs in data/ must have the same columns."
             )
-
-        # Keep only required columns in a fixed order.
+ # Keep only required columns in a fixed order.
         frames.append(df[REQUIRED_TRAINING_COLUMNS_ORDERED])
 
     return pd.concat(frames, ignore_index=True)
