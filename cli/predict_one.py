@@ -2,6 +2,8 @@
 
 The real work (load model, run estimate) lives in runtime.inference.
 This file only defines the command-line interface (typer).
+
+v2 change: added --postal flag for code_postal feature.
 """
 
 import json
@@ -16,7 +18,6 @@ from runtime.inference.load_artifact import load_artifact_from_path, ArtifactNot
 
 predict_one_app = typer.Typer(help="Predict one property (single record).")
 
-
 def _get_model_and_contract_paths(
     model_path: Path | None,
     contract_path: Path | None,
@@ -29,12 +30,12 @@ def _get_model_and_contract_paths(
         raise typer.BadParameter("Contract path not set or file not found. Use --contract or CESAR_CONTRACT_PATH.")
     return model, contract
 
-
 @predict_one_app.command("run")
 def run_predict_one(
     surface_reelle_bati: float = typer.Option(..., "--surface", "-s", help="Living area in m²"),
     nombre_pieces_principales: float = typer.Option(..., "--pieces", "-p", help="Number of main rooms"),
     code_departement: str = typer.Option(..., "--departement", "-d", help="Department code (e.g. 75, 2A)"),
+    code_postal: str = typer.Option("00000", "--postal", help="Postal code (e.g. 75015). Defaults to 00000."),
     type_local: str = typer.Option("Appartement", "--type", "-t", help="Property type"),
     model_path: Path | None = typer.Option(None, "--model", "-m", path_type=Path),
     contract_path: Path | None = typer.Option(None, "--contract", "-c", path_type=Path),
@@ -50,6 +51,7 @@ def run_predict_one(
             surface_reelle_bati=surface_reelle_bati,
             nombre_pieces_principales=nombre_pieces_principales,
             code_departement=code_departement.strip()[:3],
+            code_postal=code_postal.strip()[:5],
             type_local=type_local,
         )
 
