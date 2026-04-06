@@ -1,15 +1,11 @@
-"""Acceptance test cases: each case represents one request to the model and the expected response.
-
-Add or edit cases below to test different inputs. Each case has:
-  - name: short label (e.g. "Paris apartment 50m2 3 rooms")
-  - input: the four fields the API expects (surface, rooms, department, type)
-  - expected_value_eur: optional; if set, the API response must be close to this value
-  - expected_status: optional; if set, the API must return this HTTP status (e.g. 422 for validation errors)
-"""
+"""Acceptance test cases for the prediction API."""
 
 from model_acceptance_tests.test_case_schema import TestCase, TestCaseInput
 
-# Case 1: Paris apartment, 50 m², 3 rooms
+# ---------------------------------------------------------------------------
+# Test cases
+# ---------------------------------------------------------------------------
+
 case_paris_apartment = TestCase(
     name="Paris apartment 50m2 3 rooms",
     input=TestCaseInput(
@@ -20,9 +16,8 @@ case_paris_apartment = TestCase(
     ),
 )
 
-# Case 2: House in Rhône, 100 m², 5 rooms
 case_house_rhone = TestCase(
-    name="House 100m2 5 rooms",
+    name="House Rhone 100m2 5 rooms",
     input=TestCaseInput(
         surface_reelle_bati=100.0,
         nombre_pieces_principales=5.0,
@@ -31,7 +26,44 @@ case_house_rhone = TestCase(
     ),
 )
 
+# ---------------------------------------------------------------------------
+# Additional test cases
+# ---------------------------------------------------------------------------
+
+case_paris_studio = TestCase(
+    name="Small Paris studio 20m2 1 room",
+    input=TestCaseInput(
+        surface_reelle_bati=20.0,
+        nombre_pieces_principales=1.0,
+        code_departement="75",
+        type_local="Appartement",
+    ),
+)
+
+case_large_house_var = TestCase(
+    name="Large house Var 120m2 6 rooms",
+    input=TestCaseInput(
+        surface_reelle_bati=120.0,
+        nombre_pieces_principales=6.0,
+        code_departement="83",
+        type_local="Maison",
+    ),
+)
+
+case_dependency_bdrhone = TestCase(
+    name="Dependency Bouches-du-Rhone 40m2",
+    input=TestCaseInput(
+        surface_reelle_bati=40.0,
+        nombre_pieces_principales=1.0,
+        code_departement="13",
+        type_local="Dépendance",
+    ),
+)
+
 ACCEPTANCE_TEST_CASES = [
     case_paris_apartment,
     case_house_rhone,
+    case_paris_studio,
+    case_large_house_var,
+    case_dependency_bdrhone,
 ]
