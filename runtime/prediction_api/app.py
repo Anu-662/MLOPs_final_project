@@ -1,10 +1,12 @@
 # CESAR Prediction API — v2
 #
 # Endpoints:
-#   GET  /health         — verify model is loaded (returns 503 if not)
-#   GET  /model_info     — model version, features, target
-#   POST /estimate/      — single property valuation with price adequacy
-#   POST /estimate/batch — batch valuation for multiple properties
+#   GET  /health              — verify model is loaded (returns 503 if not)
+#   GET  /model_info          — model version, features, target
+#   POST /estimate/           — single property valuation with price adequacy
+#   POST /estimate/batch      — batch valuation for multiple properties
+#   GET  /predictions/history — recent prediction logs 
+#   GET  /stats/departments   — department price averages and thresholds 
 
 import json
 import os
@@ -28,6 +30,10 @@ app = FastAPI(title="CESAR Prediction API", version="0.2.0")
 from runtime.prediction_api.request_logger import request_logging_middleware
 
 app.middleware("http")(request_logging_middleware)
+
+# Register prediction history endpoint ( exposes request logs for monitoring)
+from runtime.prediction_api.prediction_history import register_history_endpoint
+register_history_endpoint(app)
 
 
 # Model loading (cached — loaded once, reused for every request)
@@ -105,6 +111,10 @@ def _load_department_averages() -> dict[str, float]:
 
 DEPT_AVG_PRICE_PER_M2 = _load_department_averages()
 DEFAULT_AVG_PRICE_PER_M2 = 3_000.0
+
+# Register department stats endpoint (exposes price averages and thresholds)
+from runtime.prediction_api.department_stats import register_stats_endpoint
+register_stats_endpoint(app, DEPT_AVG_PRICE_PER_M2)
 
 
 def compute_price_adequacy(
