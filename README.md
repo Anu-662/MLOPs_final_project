@@ -1,212 +1,213 @@
-# CESAR – CentraleSupelec-ESSEC System for Asset Rating
+# CESAR v2 — Property Valuation System
 
-CESAR is a modular system to manage the lifecycle of a property valuation model and its uses: **batch prediction** (CSV in/out), **single-record prediction** (CLI), **HTTP API** (FastAPI), **acceptance tests** against the API, **version comparison** of two APIs, and a minimal **web UI**. 
+> **CentraleSupélec-ESSEC System for Asset Rating**
+> MLOps Final Project — Extending v1
+
+## About this project
+
+For our MLOps final project, we extended the professor's CESAR system (v1 branch) into a production-ready property valuation platform. Rather than building from scratch, we took the existing prototype and improved it across three areas: model accuracy, API reliability, and deployment readiness. We simplified where complexity added no value (replaced the JavaScript UI with Streamlit), and added features where they made a real difference (target-encoded postal codes, automated data cleaning, request logging, and a CI pipeline).
+
+## What CESAR does
+
+CESAR estimates the market value of French properties using real transaction data from DVF (Demandes de Valeurs Foncières). You provide a few details about a property — surface area, number of rooms, department, postal code, and property type — and CESAR returns an estimated price along with a label indicating whether the price is underpriced, fair, or overpriced compared to the local market.
+
+The system exposes a FastAPI-based REST API with endpoints for single predictions, batch predictions, health checks, model metadata, prediction monitoring, and department statistics. It also includes a Streamlit web interface for non-technical users and a monitoring dashboard for operators.
 
 ---
 
-## Goal
+## Why it is useful
 
-- **Goal:** Estimate the value of a property (e.g. `valeur_fonciere`) from a small set of features (surface, number of rooms, department, property type).
-- **Uses:** (1) CLI: CSV → estimates → CSV or one record → one estimate. (2) API: POST `/estimate/` with JSON. (3) UI: form + map to input parameters and display the estimate.
+A property buyer or real estate analyst can use CESAR to:
+
+- Get a rough valuation before visiting a property
+- Check if an asking price seems reasonable for the area
+- Compare properties across different postal codes and departments
+- Price multiple properties at once using the batch endpoint
+
+The price adequacy label is the most practical feature: instead of just "this costs 500,000€", CESAR says "this is overpriced for the 75th department" — which is what a decision-maker actually needs to know.
 
 ---
 
-## Source data
+## What we improved in v2
 
-You can use data from DVF:
-https://app.dvf.etalab.gouv.fr/ (new version at: https://explore.data.gouv.fr/fr/immobilier)
+We forked the professor's v1 branch and extended the system across three areas: model improvement, data quality, and deployment.
 
-You may also use additional data from other sources, including synthetic (fake) data.
+### Model & API (Anupama Ajith)
+
+- **Added postal code as a new feature** using target encoding — each postal code is replaced with the average property price in that area, giving the model meaningful location information. This improved prediction accuracy by 7% MAE on 30,000+ transactions.
+- **Fixed the `/health` endpoint** to actually verify that the model is loaded. The original always returned "ok" even when the model file was missing. Our version returns 503 when the model isn't ready, which is what Docker healthchecks and Kubernetes probes rely on.
+- **Added `/model_info` endpoint** that returns the model version, feature list, and target variable. Useful for operators checking which model is deployed.
+- **Added a price adequacy label** on every estimate — tells the user whether the predicted price is underpriced, fair, or overpriced relative to the department average.
+- **Added `/estimate/batch` endpoint** for bulk valuation of up to 100 properties in a single API call.
+- **Built request logging middleware** that records every API request to a CSV file with timestamp, endpoint, response time, payload, and client IP.
+- **Built a data enrichment script** that validates postal codes, computes price per m² for each transaction, and generates department-level price statistics as a JSON file. The API loads these statistics for data-driven price adequacy instead of relying solely on hardcoded values.
+- **Integrated data cleaning into the training pipeline** so the model always trains on deduplicated, outlier-free data.
+- **Added 80,000+ rows of Paris transaction data** covering all 20 arrondissements for broader training coverage.
+- Registered all team endpoints in the main API file — connected  prediction history endpoint and department statistics endpoint to the FastAPI app so all 7 endpoints work together as a unified API.
+
+### Data Quality & Testing (Siya Sinha)
+
+- **Built a data cleaning script** that handles the messy raw DVF data: removes duplicate lots from multi-lot transactions, drops rows with missing surface or value, removes price outliers using the IQR method, and fills missing room counts.
+- **Built a model evaluation** comparing v1 (without postal code) vs v2 (with target-encoded postal code) using 5-fold cross-validation. The evaluation computes target encoding on training folds only to avoid data leakage.
+- **Expanded acceptance tests** from 2 to 5 cases, covering edge cases like small studios, properties in different departments, and rare property types.
+- **Set up GitHub Actions CI** that automatically trains, serves, and tests the API on every push. If anything breaks, the pull request shows a failure.
+- **Added `/predictions/history` endpoint** that returns recent prediction logs for monitoring.
+
+### Deployment & UI (Nilay Purayar)
+
+- **Replaced the JavaScript frontend with a Streamlit UI** — a single Python file that anyone can run without Node.js or a build step.
+- **Added a Docker Compose healthcheck** so the UI container only starts after the API is confirmed healthy.
+- **Built a monitoring dashboard** showing API health, model metadata, and live prediction testing with response time measurement.
+- **Added API documentation** with realistic request/response examples in the Swagger UI at `/docs`.
+- **Built a Makefile** with shortcut commands for all common operations (`make train`, `make serve`, `make pipeline`, etc.).
+- **Added `/stats/departments` endpoint** that shows the department averages and thresholds used for price adequacy, making the pricing logic fully transparent.
+
+---
+
+## API endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Returns 200 if model is loaded, 503 if not |
+| `/model_info` | GET | Returns model version, features, and target |
+| `/estimate/` | POST | Single property valuation with price adequacy |
+| `/estimate/batch` | POST | Batch valuation for up to 100 properties |
+| `/predictions/history` | GET | Returns recent prediction logs |
+| `/stats/departments` | GET | Shows department price averages and thresholds |
+| `/docs` | GET | Interactive Swagger UI with examples |
+
+---
+
+## Screenshots
+
+### Streamlit UI — Property Valuation
+<!-- Screenshot of the Streamlit property form with estimate result -->
+ *<img width="1774" height="940" alt="Screenshot 2026-04-06 at 6 17 50 PM" src="https://github.com/user-attachments/assets/c94c9707-900b-4c13-ac61-5d3ac8e148fd" />*
+
+
+### Monitoring Dashboard
+<!-- Screenshot of the monitoring dashboard showing health, model info, live test -->
+*<img width="1793" height="916" alt="Screenshot 2026-04-06 at 6 17 28 PM" src="https://github.com/user-attachments/assets/a618d7d3-3882-48b6-93b8-91d48476539a" />*
+
+### API Response Example
+<!-- Screenshot of curl or /docs showing JSON response -->
+*<img width="1745" height="640" alt="Screenshot 2026-04-06 at 6 17 34 PM" src="https://github.com/user-attachments/assets/5af890a0-b79c-4658-ba87-ff6125e7ec75" />*
+
+
 ---
 
 ## How to run
 
 ### Prerequisites
-
 - Python 3.11+
-- Node 20+ (for the UI)
+- Docker (optional, for containerised deployment)
 
-### 1. Install
-
-Dependencies are declared in `pyproject.toml` (the modern replacement for `requirements.txt`). Use `pip install -e .` so the package is installed in editable mode: code changes are picked up without reinstalling.
-
+### Quick start (local)
 ```bash
+# Install
+python -m venv venv
+source venv/bin/activate
 pip install -e .
-cd runtime/rating_ui && npm ci
+
+# Run full pipeline (clean → enrich → train)
+make pipeline
+
+# Start API
+make serve
+
+# Start UI (in another terminal)
+make ui
+
+# Start monitoring dashboard (in another terminal)
+make monitoring
 ```
 
-### 2. Train
-
-**Simple way (recommended):** Put your CSV file(s) in the `data/` folder. Each CSV must have the same columns and at least: `surface_reelle_bati`, `nombre_pieces_principales`, `code_departement`, `type_local`, `valeur_fonciere`. Then:
-
+### Docker (one command)
 ```bash
-python -m training.scripts.train_from_minimal_csv
+make docker-up
+# API:         http://localhost:8000
+# API docs:    http://localhost:8000/docs
+# UI:          http://localhost:8501
 ```
 
-The script loads every `*.csv` in `data/`, checks that all files have the same columns (and the required ones), combines the rows, and trains one model. If a file has missing or different columns, it raises a clear error.
-
-**Single file (advanced):** To train from one CSV at a custom path, use `train_from_csv_and_export(csv_path, artifact_dir, ...)` from `training.asset_rating_model.train_and_export`.
-
-This writes `artifact_storage/model_<version>.joblib` and `artifact_storage/contract_<version>.json`. Symlink or set `CESAR_MODEL_PATH` and `CESAR_CONTRACT_PATH` to these files.
-
-### 3. Batch CLI
-
+### Run tests
 ```bash
-export CESAR_MODEL_PATH=artifact_storage/model_20250101120000.joblib
-export CESAR_CONTRACT_PATH=artifact_storage/contract_20250101120000.json
-cesar batch run --input input.csv --output output.csv
+make test
 ```
 
-### 4. Single-record CLI
-
+### Run model evaluation
 ```bash
-cesar predict-one run --surface 50 --pieces 3 --departement 75 --type Appartement
-# From JSON file: cesar predict-one run --json one_record.json
-# JSON output:  cesar predict-one run --surface 50 --pieces 3 --departement 75 --type Appartement --json-out
+make evaluate
 ```
 
-Use `--model` / `--contract` or set `CESAR_MODEL_PATH` and `CESAR_CONTRACT_PATH`. Valid `--type` values: `Appartement`, `Maison`, `Dépendance`, `Local industriel. commercial ou assimilé`.
-
-### 5. API
-
+### All available commands
 ```bash
-uvicorn runtime.prediction_api.app:app --reload --host 0.0.0.0 --port 8000
+make help
 ```
-
-Set `CESAR_MODEL_PATH` and `CESAR_CONTRACT_PATH` in the environment.
-
-### 6. UI
-
-```bash
-cd runtime/rating_ui && npm run dev
-```
-
-Open the dev URL (e.g. http://localhost:5173). Set `window.CESAR_API_BASE = 'http://localhost:8000'` in the browser console if the API is on another origin.
-
-### 7. Acceptance tests
-
-Test cases are defined in Python in `model_acceptance_tests/test_cases.py`. Edit that file to add or change cases. With the API running:
-
-```bash
-export CESAR_API_URL=http://localhost:8000
-cesar acceptance-tests run
-```
-
-### 8. Version comparison
-
-Use `comparison.api_version_comparison.run_comparison` with a `CompareConfig` (two base URLs and a list of inputs). Ideas: implement diff of `estimated_value_eur`, regression criteria, or a report.
-
-### 9. Experiment tracking (simple)
-
-When you train often (different data, parameters, or ideas), it’s easy to forget what you did and which model version was best. **Experiment tracking** means: write down each run (when, what you used, what you got) in one place so you can compare later.
-
-We provide a minimal version: no extra service, no database. One CSV file (e.g. `experiment_runs/runs.csv`) stores one row per training run. You can open it in Excel or read it in Python.
-
-**What to record per run**
-
-- **When** you ran (timestamp).
-- **Which model version** was produced (e.g. the version string you wrote to `artifact_storage`).
-- **What you used**: e.g. number of training rows, path to the CSV, or a short note (“first DVF subset”, “added feature X”).
-- **What you got** (optional): e.g. a metric like mean absolute error on a fixed test set.
-
-**How to use it**
-
-After you train and export a model, call the logger once:
-
-```python
-from pathlib import Path
-from training.asset_rating_model.train_and_export import train_from_csv_and_export
-from training.experiment_log import log_run
-
-csv_path = Path("path/to/dvf_subset.csv")
-artifact_dir = Path("artifact_storage")
-model_path, contract_path = train_from_csv_and_export(csv_path, artifact_dir)
-# Version is in the filename, e.g. model_20250101120000.joblib
-version = model_path.stem.replace("model_", "")
-
-log_run(version, train_rows=1000, notes="DVF subset 75")  # use len(df) if you have the dataframe
-```
-
-If you compute a metric (e.g. test MAE), pass it as `metrics={"mae": 12000}`. To see past runs: `list_runs()` returns a list of dicts; or open `experiment_runs/runs.csv` in Excel.
-
-**Why this helps**
-
-- You can see which run used which data or settings.
-- You can compare metrics across runs and pick the best model version to deploy.
-- Later you can switch to a real experiment tracker (e.g. MLflow) that adds plots, parameters, and artifacts; the idea is the same: record what you did and what you got.
 
 ---
 
-## Ideas to implement
 
-Organized by **difficulty / scope** (from small to larger).
+## Known limitations
 
-1. **Easier**
-   - Add more acceptance test cases in `model_acceptance_tests/test_cases.py`; optional property-based tests.
-   - UI: improve map (e.g. click on department to set `code_departement`); display value range if the API returns `value_low_eur` / `value_high_eur`.
-   - Confidence intervals: in `estimate_from_artifact` and the API response, add optional `value_low_eur` / `value_high_eur` (e.g. quantile regression).
+We want to be transparent about what CESAR cannot do and where it falls short:
 
-2. **Medium**
-   - Complete the API version comparison: diff responses, define regression criteria, output a small report (HTML or JSON).
-   - CI/CD: e.g. GitHub Actions to build Docker images and run acceptance tests.
-   - Deployment: add Kubernetes readiness/liveness probes, HPA, ingress, or GitOps.
+1. **Target encoding can overfit.** If a postal code has only 2 transactions, its "average price" is unreliable. Smoothing techniques (blending with the global mean based on sample size) would reduce this risk but were not implemented.
 
-3. **Larger**
-   - Authentication/authorization on the API.
-   - Model registry (e.g. MLflow) instead of a single artifact directory.
-   - Database or logging for requests / A/B tests.
+2. **Arbitrary adequacy thresholds.** We use 0.85 and 1.15 as cutoffs for underpriced/overpriced. These have no statistical basis — a more rigorous approach would use percentiles from the actual price distribution in each department.
+
+3. **Department averages ignore property type.** A house and an apartment in the same department have very different price profiles. The current implementation uses one average per department regardless of type.
+
+4. **No confidence intervals.** The response schema has placeholder fields for `value_low_eur` and `value_high_eur`, but quantile regression is not implemented. The single-point estimate gives no indication of uncertainty.
+
+5. **Training data is limited to Paris.** The model has seen transactions from Paris only. Predictions for other departments rely on limited generalisation ability.
+
+6. **Static department averages.** While the API can load data-driven averages from a JSON file, these are only updated when the enrichment script is rerun manually. In production, this should be automated (e.g. quarterly).
 
 ---
 
-## Repository layout
+## Future work
 
-Code is grouped by MLOps phase so students can navigate easily.
+If CESAR were to continue development, these improvements would have the most impact:
 
-- **Root:** `prediction_contract/` – shared request/response and on-disk contract (feature names, version). `cli/` – all CLI commands (typer); entrypoint: `cesar`. Logic for each command lives in the matching folder (e.g. `runtime/`, `model_acceptance_tests/`).
-- **runtime/** – serving: `prediction_api/` (FastAPI), `batch_prediction/` (read CSV, run estimates, write CSV), `inference/` (load artifact, estimate from model), `rating_ui/` (form, map of France).
-- **training/** – `asset_rating_model/` (train and export), `scripts/` (e.g. minimal CSV demo), `experiment_log.py` (simple run logging to a CSV).
-- **model_acceptance_tests/** – hardcoded test cases in Python, runner; CLI is in `cli/acceptance_tests.py`.
-- **comparison/** – `api_version_comparison/` (config and stub to compare two APIs).
-- **deployment/** – Dockerfiles, docker-compose, Kubernetes manifests.
-- **artifact_storage/** – directory for model and contract (versioned names); created on first train.
+1. **Expand training data** — add DVF CSVs from more departments to improve coverage and generalisation.
+2. **Smoothed target encoding** — blend postal code averages with the global mean based on sample size to reduce overfitting on rare postal codes.
+3. **Property-type-specific averages** — compute separate price per m² averages per department AND property type for more accurate adequacy labels.
+4. **Confidence intervals** — implement quantile regression or use individual Random Forest tree predictions to estimate prediction uncertainty.
+5. **Automated retraining** — schedule periodic retraining with fresh DVF data using Airflow or a cron job.
+6. **CSV batch upload in the UI** — allow users to upload a CSV of properties and get all estimates in a downloadable table.
+7. **Production monitoring** — replace the Streamlit dashboard with Prometheus + Grafana for real-time metrics and alerting.
 
 ---
 
-## Project ideas for students
+## How it should be operated and maintained
 
-Here are concrete ways to extend CESAR. All are doable in a short course; pick one or combine a few depending on your time and interests.
+1. **Retrain periodically.** DVF data is updated regularly. Run `make pipeline` monthly or quarterly with fresh data.
+2. **Monitor prediction drift.** If the model consistently over- or under-estimates, the market has moved and retraining is needed. The request logs can be analysed for this.
+3. **Update department averages.** Running `make enrich` recomputes averages from the latest data, which the API picks up on next restart.
+4. **Check CI status.** Every push runs the full test suite. Red builds should be investigated before merging.
+5. **Review request logs.** The `/predictions/history` endpoint and the CSV logs help identify unusual inputs or increasing error rates.
 
-**More and better data**
-- Add extra CSVs to `data/` (e.g. other DVF extracts, open data from data.gouv.fr) and retrain. Compare experiment-log metrics across runs to see if more data helps.
-- Enrich the training CSV with one new column (e.g. `code_postal` or distance to a city center from open data), add it to the contract and model, and measure the impact. Good way to see the full pipeline: data → training → contract → API.
+---
 
-**Expose the model via MCP (Model Context Protocol)**
-- Build a small MCP server that exposes a “get property estimate” tool. Other apps (or an AI assistant in Cursor/Claude) can then call your model without touching the API directly. Great for “my model as a building block” and learning how tools are exposed to LLMs.
-- Start from the existing inference code: one function that takes (surface, rooms, department, type) and returns the estimate. Wrap it in an MCP server that declares one tool and calls that function. The MCP docs and examples are minimal; you mainly need to return JSON in the right shape.
+## Team contributions
 
-**Smarter UI**
-- Make the map clickable: click a department on the Leaflet map to set `code_departement` in the form. You only need to add a GeoJSON layer (e.g. French departments) and a click handler that updates the form.
-- Show the value range when the API returns `value_low_eur` / `value_high_eur` (if you add confidence intervals to the model). The UI already has a placeholder for “Range”.
+| Team member | Area | Key contributions |
+|-------------|------|-------------------|
+| **Anupama Ajith** | Model, API & Data Enrichment | Target-encoded postal code feature, /health fix, /model_info, price adequacy, /estimate/batch, request logging, data enrichment, pipeline integration, endpoint registration for all team members, project documentation |
+| **Siya Sinha** | Data Quality, Evaluation & CI | Data cleaning script, v1 vs v2 evaluation, acceptance tests, GitHub Actions CI, /predictions/history |
+| **Nilay Purayar** | Deployment, UI & Developer Experience | Streamlit UI, monitoring dashboard, Docker healthcheck, API docs, Makefile, /stats/departments |
 
-**Anomaly detection (“why so cheap / so expensive?”)**
-- Add a feature that flags surprising estimates: “This estimate looks unusually high (or low) for the given surface, location, and type.” Users get a nudge to double-check or add more context. There are several ways to implement it; the simplest use the model’s own uncertainty.
-- **Option A – Confidence ranges:** If the model outputs a range (`value_low_eur`, `value_high_eur`), you can treat a very wide range as “uncertain” and show a warning, or compare the point estimate to the range (e.g. if the user’s prior belief is outside the range, flag it). Implementing ranges may require changing the model (e.g. quantile regression or prediction intervals) and the contract; the response schema already has optional `value_low_eur` / `value_high_eur`.
-- **Option B – Simple rules:** Without changing the model, you can add heuristics (e.g. “price per m² far above/below the department average” using training or external stats) and return a flag in the API (e.g. `anomaly_warning: "high_for_department"`). Good first step before touching the model.
-- **Option C – Second model or score:** Train a small classifier or scorer that predicts “is this estimate suspicious?” from the same inputs plus the model’s point estimate (e.g. residual-style or comparison to a baseline). The API then returns both the estimate and a binary or score for “possible anomaly”.
+---
 
-Pick one option and plug it into the API and (optionally) the UI; even a simple rule or a wide-range check makes the system more interpretable.
+## AI usage disclosure
 
-**API and developer experience**
-- Add a `/health` that checks that the model and contract load (e.g. read one file). Helps deployment and monitoring.
-- Add one extra endpoint, e.g. GET `/model_info`, that returns the contract version and feature names. Useful for scripts or the UI to show “which model is running”.
+We used AI tools (primarily for documentation formatting, understanding certain FastAPI and scikit-learn concepts, and refining code structure). All design decisions — which features to add, which endpoints to create, how to structure the pipeline, and what to include in this documentation — were made by us. We understand and can explain every piece of code in this project.
 
-**Deployment and ops**
-- Run the API and UI with `docker compose`, then try the canary or blue-green Kubernetes manifests. Switch traffic from “blue” to “green” once and watch the rollout. No need to design a full pipeline; the goal is to feel what a zero-downtime switch is.
-- Add a simple GitHub Action that runs acceptance tests on every push. One YAML file that installs deps, starts the API (with a test model), and runs `cesar acceptance-tests run`.
+Specifically, AI assisted with:
+- Formatting and structuring documentation
+- Understanding FastAPI middleware patterns and Pydantic model configuration
+- Refining code comments for clarity
+- Understanding target encoding and cross-validation best practices
 
-**Combining ideas**
-- “Data + experiment log”: train on two different data mixes, log each run with `experiment_log`, then compare which version the acceptance tests prefer.
-- “MCP + UI”: build the MCP server, then use it from a small script or from Cursor’s MCP client to get estimates; keep the existing UI for demos.
-- “API + deployment”: add `/health` and `/model_info`, then add readiness/liveness probes in the Kubernetes deployment so the cluster only sends traffic when the model is loaded.
-
-Pick something that excites you and fits your timeline; even one of these will deepen your understanding of the stack.
+All architectural decisions, feature choices, pipeline design, and the overall project direction were ours.
