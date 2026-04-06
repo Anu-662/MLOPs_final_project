@@ -1,12 +1,12 @@
-# CESAR Rating UI. Serve static build; proxy /api to API in production or set CESAR_API_BASE.
-FROM node:20-alpine AS build
+# Dockerfile for the Streamlit UI
+FROM python:3.12-slim
 
 WORKDIR /app
-COPY runtime/rating_ui/ ./
 
-RUN npm install && npm run build
+RUN pip install --no-cache-dir streamlit requests
 
-FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+COPY runtime/streamlit_ui/ /app/
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "app.py", "--server.headless=true", "--server.address=0.0.0.0"]
