@@ -1,12 +1,11 @@
 from pydantic import BaseModel, Field
 
-
 class TestCaseInput(BaseModel):
     surface_reelle_bati: float
     nombre_pieces_principales: float
     code_departement: str
+    code_postal: str = Field(default="00000", description="Postal code (optional, defaults to 00000)")
     type_local: str
-
 
 class TestCase(BaseModel):
     """One test case: input and optional expected value or expected status."""
